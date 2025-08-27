@@ -1,0 +1,249 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>{% block title %}VideoChat{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="{% static 'css/app.css' %}" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="topbar__left">
+      <a href="/" class="brand">WhatsApp Clone</a>
+    </div>
+    <div class="topbar__right">
+      <span class="whoami">Hi, <strong>{{ request.user.username }}</strong></span>
+      <a class="btn btn-ghost" href="{% url 'notifications' %}"><i class="fas fa-bell"></i></a>
+      <a class="btn btn-ghost" href="/"><i class="fas fa-home"></i></a>
+      <button id="themeToggle" class="btn btn-ghost">
+        <i class="fas fa-moon"></i>
+      </button>
+      <!-- Safe logout via POST -->
+      <form id="logoutForm" method="post" action="{% url 'logout' %}" class="logout-form">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-ghost">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </form>
+    </div>
+  </header>
+
+  <!-- WORKSPACE -->
+  <main class="workspace">
+    <aside id="sidebarPane" class="pane pane--left">
+      <div class="sidebar">
+        <div class="sidebar__header">
+          <div class="avatar">{{ request.user.username|first|upper }}</div>
+          <div class="actions">
+            <button class="btn btn-ghost">
+              <i class="fas fa-circle-notch"></i>
+            </button>
+            <button class="btn btn-ghost">
+              <i class="fas fa-comment-alt"></i>
+            </button>
+            <button class="btn btn-ghost">
+              <i class="fas fa-ellipsis-v"></i>
+            </button>
+            <button id="closeSidebarBtn" class="btn btn-ghost d-none">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+        <div class="sidebar__search">
+          <input type="text" placeholder="Search or start new chat" />
+        </div>
+        <ul class="chat-list">
+          {% block sidebar %}{% endblock %}
+        </ul>
+      </div>
+    </aside>
+    <section class="pane pane--right">
+      <button id="sidebarToggle" class="btn btn-ghost sidebar-toggle">
+        <i class="fas fa-bars"></i>
+      </button>
+      {% block content %}
+      <div class="empty-state">
+        <h2>Welcome to WhatsApp Clone</h2>
+        <p>Click on a chat to start messaging or start a new one.</p>
+      </div>
+      {% endblock %}
+    </section>
+  </main>
+
+  <!-- POPUPS -->
+  <div id="popup-message" class="popup">
+    <h4>New Message</h4>
+    <p id="popup-message-text"></p>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="hidePopup('popup-message')">
+        Close
+      </button>
+    </div>
+  </div>
+  <div id="popup-call" class="popup">
+    <h4>Incoming Call</h4>
+    <p id="popup-call-text"></p>
+    <div class="actions">
+      <button id="btnAcceptCall" class="btn btn-primary">
+        <i class="fas fa-phone"></i> Accept
+      </button>
+      <button id="btnRejectCall" class="btn btn-danger">
+        <i class="fas fa-phone-slash"></i> Reject
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // popup helpers
+    function showPopup(id, text) {
+      const t = document.getElementById(id + "-text");
+      if (t) t.innerText = text || "";
+      document.getElementById(id).style.display = "block";
+    }
+    function hidePopup(id) {
+      document.getElementById(id).style.display = "none";
+    }
+
+    // Define APP_CONTEXT for global scripts
+    window.APP_CONTEXT = {
+      me: "{{ request.user.username|escapejs }}",
+      // wsUrl will be defined dynamically in chat.js or overridden in room.html
+    };
+
+    // Theme Toggle Logic
+    const themeToggleBtn = document.getElementById('themeToggle');
+    const currentTheme = localStorage.getItem('theme');
+
+    function applyTheme(theme) {
+      document.body.classList.toggle('light-theme', theme === 'light');
+      themeToggleBtn.querySelector('i').className = theme === 'light' ? 'fas fa-sun' : 'fas fa-moon';
+    }
+
+    if (currentTheme) {
+      applyTheme(currentTheme);
+    } else {
+      // Default to dark theme if no preference is set
+      applyTheme('dark');
+    }
+
+    themeToggleBtn.addEventListener('click', () => {
+      const newTheme = document.body.classList.contains('light-theme') ? 'dark' : 'light';
+      localStorage.setItem('theme', newTheme);
+      applyTheme(newTheme);
+    });
+
+    // Responsive Sidebar Logic
+    const sidebarPane = document.getElementById('sidebarPane');
+    const sidebarToggleBtn = document.getElementById('sidebarToggle');
+
+    function toggleSidebar() {
+      sidebarPane.classList.toggle('is-open');
+    }
+
+    if (sidebarToggleBtn) {
+      sidebarToggleBtn.addEventListener('click', toggleSidebar);
+    }
+
+    // Close sidebar on larger screens if it was opened on mobile
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 768 && sidebarPane.classList.contains('is-open')) {
+        sidebarPane.classList.remove('is-open');
+      }
+    });
+  </script>
+  <script>
+    // Read accessToken from URL query parameter and move to localStorage
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get('token');
+
+    if (tokenFromUrl) {
+      localStorage.setItem('accessToken', tokenFromUrl);
+      console.log("[base.html] Moved accessToken from URL to localStorage.");
+
+      // Remove token from URL to prevent it from being exposed in browser history/logs
+      urlParams.delete('token');
+      const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+      window.history.replaceState({}, document.title, newUrl);
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+  <script>
+    // Event listeners for global call popup
+    document.getElementById("btnAcceptCall").addEventListener("click", () => {
+      window.GlobalCallManager.acceptCall();
+    });
+
+    document.getElementById("btnRejectCall").addEventListener("click", () => {
+      window.GlobalCallManager.rejectCall();
+    });
+
+    // Web Push Notification Registration
+    const VAPID_PUBLIC_KEY = "{{ settings.VAPID_PUBLIC_KEY }}";
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/');
+
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    }
+
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.register('{% static "js/webpush_serviceworker.js" %}')
+        .then(function (registration) {
+          console.log('Service Worker Registered', registration);
+
+          registration.pushManager.getSubscription()
+            .then(function (subscription) {
+              if (subscription) {
+                console.log('Already subscribed', subscription);
+                // You might want to send this subscription to your backend if it's not there
+              } else {
+                const applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+                registration.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: applicationServerKey
+                })
+                  .then(function (newSubscription) {
+                    console.log('New Push Subscription:', newSubscription);
+                    // Send subscription to your backend
+                    fetch('{% url "subscribe_push" %}', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                      },
+                      body: JSON.stringify({ subscription: newSubscription.toJSON() })
+                    })
+                      .then(response => response.json())
+                      .then(data => console.log('Subscription saved on server:', data))
+                      .catch(error => console.error('Error saving subscription:', error));
+                  })
+                  .catch(function (error) {
+                    console.error('Failed to subscribe the user: ', error);
+                  });
+              }
+            });
+        })
+        .catch(function (error) {
+          console.error('Service Worker registration failed: ', error);
+        });
+    }
+  </script>
+
+</body>
+
+</html>

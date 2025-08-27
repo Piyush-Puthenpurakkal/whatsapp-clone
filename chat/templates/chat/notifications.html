@@ -1,0 +1,29 @@
+{% extends "chat/base.html" %}
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2>Notifications</h2>
+  <ul>
+    {% for log in logs %}
+    <li style="margin:6px 0;">
+      <strong>{{ log.sender }}</strong>
+      {% if log.type == "chat" %}
+      sent a message: “{{ log.message }}”
+      {% elif log.type == "offer" %}
+      started a call
+      {% elif log.type == "answer" %}
+      answered a call
+      {% elif log.type == "ice" %}
+      exchanged network info
+      {% else %}
+      {{ log.type }} {{ log.message }}
+      {% endif %}
+      <small style="color:#666;"> — {{ log.timestamp }}</small>
+    </li>
+    {% empty %}
+    <li>No notifications yet.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

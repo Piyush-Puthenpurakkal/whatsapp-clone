@@ -1,0 +1,32 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Auth{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/base_auth.css' %}" />
+  </head>
+
+  <body>
+    <div class="auth-container">
+      <div class="auth-header">
+        <button
+          id="login-tab"
+          class="{% if request.resolver_match.url_name == 'login' %}active{% endif %}"
+          onclick="location.href='{% url 'login' %}'"
+        >
+          Login
+        </button>
+        <button
+          id="signup-tab"
+          class="{% if request.resolver_match.url_name == 'signup' %}active{% endif %}"
+          onclick="location.href='{% url 'signup' %}'"
+        >
+          Sign Up
+        </button>
+      </div>
+      <div class="auth-content">{% block content %}{% endblock %}</div>
+    </div>
+  </body>
+</html>

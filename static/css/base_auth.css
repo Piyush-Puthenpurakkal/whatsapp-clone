@@ -1,0 +1,195 @@
+body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #f0f2f5;
+    /* Light grey background */
+    margin: 0;
+    padding: 20px;
+    /* Add some padding for mobile view */
+    box-sizing: border-box;
+}
+
+.auth-container {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 400px;
+    /* Max width for desktop */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.auth-header {
+    display: flex;
+    justify-content: space-around;
+    background-color: #075e54;
+    /* WhatsApp dark green */
+    padding: 15px 0;
+    border-bottom: 1px solid #ece5dd;
+}
+
+.auth-header button {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 18px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 5px 10px;
+    transition: color 0.3s ease;
+}
+
+.auth-header button.active {
+    color: white;
+    border-bottom: 2px solid white;
+}
+
+.auth-header button:hover:not(.active) {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.auth-content {
+    padding: 25px;
+    background-color: #ece5dd;
+    /* WhatsApp light background */
+    flex-grow: 1;
+}
+
+h2 {
+    text-align: center;
+    color: #1f2d3d;
+    /* Darker text for headings */
+    margin-bottom: 25px;
+    font-size: 24px;
+}
+
+.form-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    /* Rounded input fields */
+    font-size: 16px;
+    box-sizing: border-box;
+    background-color: #fdfdfd;
+    transition: border-color 0.2s ease;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus {
+    border-color: #25d366;
+    /* WhatsApp green on focus */
+    outline: none;
+}
+
+button[type="submit"] {
+    width: 100%;
+    padding: 12px 15px;
+    background: #25d366;
+    /* WhatsApp green button */
+    color: white;
+    border: none;
+    border-radius: 20px;
+    /* Rounded buttons */
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+button[type="submit"]:hover {
+    background: #1da851;
+    /* Darker green on hover */
+}
+
+.error-box {
+    background: #ffebee;
+    /* Light red for errors */
+    color: #d32f2f;
+    /* Dark red text */
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 15px;
+    border: 1px solid #ef9a9a;
+}
+
+.error-box div {
+    margin-bottom: 5px;
+}
+
+.error-box div:last-child {
+    margin-bottom: 0;
+}
+
+.link-text {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 15px;
+    color: #555;
+}
+
+.link-text a {
+    color: #075e54;
+    /* WhatsApp dark green for links */
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.link-text a:hover {
+    text-decoration: underline;
+}
+
+/* Mobile-first adjustments */
+@media (max-width: 600px) {
+    body {
+        padding: 0;
+        background: #075e54;
+        /* Dark green background for full mobile screen */
+    }
+
+    .auth-container {
+        border-radius: 0;
+        box-shadow: none;
+        height: 100vh;
+        max-width: none;
+    }
+
+    .auth-content {
+        padding: 20px;
+    }
+
+    h2 {
+        font-size: 22px;
+        margin-bottom: 20px;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    button[type="submit"] {
+        padding: 15px;
+        font-size: 17px;
+    }
+}

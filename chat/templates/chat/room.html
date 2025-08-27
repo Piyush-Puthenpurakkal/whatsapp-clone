@@ -1,0 +1,188 @@
+{% extends "chat/base.html" %} {% load static %} {% block title %}Chat with @{{
+peer.username }} {% endblock %} {% block sidebar %}
+<ul id="sidebarUsers">
+  {% for u in users %}
+  <li class="chat-item {% if u.username == peer.username %}is-active{% endif %}" data-username="{{ u.username }}">
+    <a class="chat-item__link" href="{% url 'room_with_user' u.username %}">
+      <div class="chat-item__avatar">{{ u.username|first|upper }}</div>
+      <div class="chat-item__meta">
+        <div class="chat-item__top">
+          <span class="chat-item__name">@{{ u.username }}</span>
+          <span class="user-status" data-user-status="{{ u.username }}">Offline</span>
+          <span class="chat-item__time"></span>
+        </div>
+        <div class="chat-item__last"></div>
+      </div>
+    </a>
+  </li>
+  {% empty %}
+  <li class="chat-item--empty">No other users yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %} {% block content %}
+<div class="chat">
+  <div class="chat__header">
+    <div class="peer">
+      <div class="peer__avatar">{{ peer.username|first|upper }}</div>
+      <div class="peer__info">
+        <div class="peer__name">@{{ peer.username }}</div>
+        <div class="peer__status" id="chatHeaderStatus" data-peer-username="{{ peer.username }}">
+          Offline
+        </div>
+        {# Initial status, will be updated by JS #}
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btnStartCall" class="btn btn-ghost">
+        <i class="fas fa-video"></i>
+      </button>
+      <button id="btnStartGroupCall" class="btn btn-ghost">
+        <i class="fas fa-users"></i>
+      </button>
+    </div>
+  </div>
+
+  <div id="chatBox" class="chat__messages">
+    {% for m in history %}
+    <div class="msg {% if m.sender == request.user.username %}msg--me{% else %}msg--peer{% endif %}"
+      data-message-id="{{ m.id }}">
+      <div class="msg__avatar">{{ m.sender|first|upper }}</div>
+      <div class="msg__bubble">
+        <div class="msg__text">{{ m.message }}</div>
+        <div class="msg__time">
+          {{ m.timestamp|date:"P" }}
+          {% if m.sender == request.user.username %}
+          <span class="read-receipt" data-message-id="{{ m.id }}" data-read="{{ m.read|lower }}">
+            {% if m.read %}
+            <i class="fas fa-check-double"></i> {# Double tick for read #}
+            {% else %}
+            <i class="fas fa-check"></i> {# Single tick for sent #}
+            {% endif %}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="chat__empty">
+      <p>Say hello to @{{ peer.username }}!</p>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div id="typingIndicator" class="typing-indicator" style="display: none">
+    <span id="typingUsername"></span> is typing...
+  </div>
+
+  <form id="messageForm" class="composer">
+    <button class="composer__btn"><i class="fas fa-smile"></i></button>
+    <input id="messageInput" type="text" placeholder="Type a message" required class="composer__input" />
+    <button class="composer__btn" type="submit">
+      <i class="fas fa-paper-plane"></i>
+    </button>
+  </form>
+</div>
+
+<!-- Global Call Window (Floating/Draggable) -->
+<div id="callWindow" class="call-window" style="display: none">
+  <div class="call-header">
+    <h4 id="callTitle">Video Call with @{{ peer.username }}</h4>
+    <div class="call-header-actions">
+      <button id="btnMinimizeMaximize" class="btn btn-ghost">
+        <i class="fas fa-expand-alt"></i>
+      </button>
+      <button id="btnEndCall" class="btn btn-danger">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  </div>
+  <div class="call-body">
+    <div id="loadingIndicator" class="loading-indicator" style="display: none">
+      <div class="spinner"></div>
+      <p id="loadingText"></p>
+    </div>
+    <video id="remoteVideo" autoplay playsinline></video>
+    <div id="groupVideoContainer" class="group-video-container"></div>
+    <video id="localVideo" autoplay playsinline muted></video>
+    <div class="call-controls">
+      <button id="btnToggleMic" class="btn">
+        <i class="fas fa-microphone"></i>
+      </button>
+      <button id="btnToggleCamera" class="btn">
+        <i class="fas fa-video"></i>
+      </button>
+      <button id="btnHangUp" class="btn btn-danger">
+        <i class="fas fa-phone-slash"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Inline incoming call box (callee only) - Hidden by default, managed by JS -->
+<div id="incomingCallBox" class="popup" style="display: none">
+  <h4>Incoming Call</h4>
+  <p id="incomingCallText"></p>
+  <div class="actions">
+    <button id="btnAcceptInline" class="btn btn-primary">
+      <i class="fas fa-phone"></i> Accept
+    </button>
+    <button id="btnRejectInline" class="btn btn-danger">
+      <i class="fas fa-phone-slash"></i> Reject
+    </button>
+  </div>
+</div>
+
+{% endblock %} {% block scripts %}
+{{ webrtc_ice_servers|json_script:'webrtc_ice_servers' }}
+<script>
+  // Extend APP_CONTEXT with room-specific details
+  window.APP_CONTEXT = window.APP_CONTEXT || {}; // Ensure APP_CONTEXT exists
+  window.APP_CONTEXT.roomName = "{{ room_name }}";
+  window.APP_CONTEXT.peerUsername = "{{ peer.username }}";
+  window.APP_CONTEXT.iceServers = JSON.parse(
+    document.getElementById("webrtc_ice_servers").textContent
+  );
+</script>
+<script src="{% static 'js/chat.js' %}"></script>
+<script src="{% static 'js/global-call-manager.js' %}"></script>
+<script src="{% static 'js/webrtc.js' %}"></script>
+<script>
+  // Event listener for the hang up button in the call window
+  document.getElementById("btnHangUp").addEventListener("click", () => {
+    window.GlobalCallManager.endCall();
+  });
+
+  // Event listeners for inline incoming call box
+  document.getElementById("btnAcceptInline").addEventListener("click", () => {
+    window.GlobalCallManager.acceptCall();
+  });
+
+  document.getElementById("btnRejectInline").addEventListener("click", () => {
+    window.GlobalCallManager.rejectCall();
+  });
+
+  // Update call title when call starts/changes
+  window.addEventListener("globalCallStateChange", (event) => {
+    const callState = event.detail;
+    if (callState && callState.type === "active") {
+      document.getElementById(
+        "callTitle"
+      ).innerText = `Video Call with @${callState.peer}`;
+    } else {
+      document.getElementById("callTitle").innerText = "Video Call";
+    }
+  });
+
+  // Explicitly connect WebRTC WebSocket and initialize GlobalCallManager
+  if (window.connectWebRTCWS) {
+    window.connectWebRTCWS();
+  } else {
+    console.warn("window.connectWebRTCWS is not defined. WebRTC WebSocket might not connect.");
+  }
+  if (window.GlobalCallManager && window.GlobalCallManager.init) {
+    window.GlobalCallManager.init();
+  } else {
+    console.warn("window.GlobalCallManager is not defined or init method is missing.");
+  }
+</script>
+{% endblock %}

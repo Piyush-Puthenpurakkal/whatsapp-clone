@@ -1,0 +1,2867 @@
+_______________________________________________________________________________________________
+videochat_app/accounts/admin.py
+_______________________________________________________________________________________________
+videochat_app/accounts/apps.py
+
+from django.apps import AppConfig
+
+
+class AccountsConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'accounts'
+_______________________________________________________________________________________________
+videochat_app/accounts/forms.py
+
+from django import forms
+from django.contrib.auth.models import User
+from django.contrib.auth.forms import UserCreationForm
+
+class CustomUserCreationForm(UserCreationForm):
+    email = forms.EmailField(required=True)
+
+    class Meta:
+        model = User
+        fields = ("username", "email", "password1", "password2")
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.email = self.cleaned_data["email"]
+        if commit:
+            user.save()
+        return user
+_______________________________________________________________________________________________
+videochat_app/accounts/models.py
+_______________________________________________________________________________________________
+videochat_app/accounts/tests.py
+_______________________________________________________________________________________________
+videochat_app/accounts/urls.py
+
+from django.urls import path
+from .views import SignUpView
+
+urlpatterns = [
+    path('signup/', SignUpView.as_view(), name='signup'),
+]
+_______________________________________________________________________________________________
+videochat_app/accounts/views.py
+
+from django.urls import reverse_lazy
+from django.views import generic
+from django.contrib import messages
+from chat.mongo import get_db
+from datetime import datetime
+from .forms import CustomUserCreationForm
+
+class SignUpView(generic.CreateView):
+    form_class = CustomUserCreationForm
+    success_url = reverse_lazy('login')
+    template_name = 'registration/signup.html'
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        try:
+            db = get_db()
+            db.users.insert_one({
+                "username": self.object.username,
+                "email": self.object.email,
+                "date_joined": datetime.utcnow()
+            })
+            messages.success(self.request, "Account created successfully!")
+        except Exception as e:
+            messages.warning(self.request, f"Account created, but failed to save in MongoDB: {e}")
+        return response
+_______________________________________________________________________________________________
+videochat_app/chat/templates/chat/base.html
+
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{% block title %}VideoChat{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="{% static 'css/app.css' %}" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+    />
+    {% block extra_head %}{% endblock %}
+  </head>
+
+  <body>
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar__left">
+        <a href="/" class="brand">WhatsApp Clone</a>
+      </div>
+      <div class="topbar__right">
+        <span class="whoami"
+          >Hi, <strong>{{ request.user.username }}</strong></span
+        >
+        <a class="btn btn-ghost" href="{% url 'notifications' %}"
+          ><i class="fas fa-bell"></i
+        ></a>
+        <a class="btn btn-ghost" href="/"><i class="fas fa-home"></i></a>
+        <!-- Safe logout via POST -->
+        <form
+          id="logoutForm"
+          method="post"
+          action="{% url 'logout' %}"
+          class="logout-form"
+        >
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost">
+            <i class="fas fa-sign-out-alt"></i>
+          </button>
+        </form>
+      </div>
+    </header>
+
+    <!-- WORKSPACE -->
+    <main class="workspace">
+      <aside class="pane pane--left">
+        <div class="sidebar">
+          <div class="sidebar__header">
+            <div class="avatar">{{ request.user.username|first|upper }}</div>
+            <div class="actions">
+              <button class="btn btn-ghost">
+                <i class="fas fa-circle-notch"></i>
+              </button>
+              <button class="btn btn-ghost">
+                <i class="fas fa-comment-alt"></i>
+              </button>
+              <button class="btn btn-ghost">
+                <i class="fas fa-ellipsis-v"></i>
+              </button>
+            </div>
+          </div>
+          <div class="sidebar__search">
+            <input type="text" placeholder="Search or start new chat" />
+          </div>
+          <ul class="chat-list">
+            {% block sidebar %}{% endblock %}
+          </ul>
+        </div>
+      </aside>
+      <section class="pane pane--right">
+        {% block content %}
+        <div class="empty-state">
+          <h2>Welcome to WhatsApp Clone</h2>
+          <p>Click on a chat to start messaging or start a new one.</p>
+        </div>
+        {% endblock %}
+      </section>
+    </main>
+
+    <!-- POPUPS -->
+    <div id="popup-message" class="popup">
+      <h4>New Message</h4>
+      <p id="popup-message-text"></p>
+      <div class="actions">
+        <button class="btn btn-ghost" onclick="hidePopup('popup-message')">
+          Close
+        </button>
+      </div>
+    </div>
+    <div id="popup-call" class="popup">
+      <h4>Incoming Call</h4>
+      <p id="popup-call-text"></p>
+      <div class="actions">
+        <button id="btnAcceptCall" class="btn btn-primary">
+          <i class="fas fa-phone"></i> Accept
+        </button>
+        <button id="btnRejectCall" class="btn btn-danger">
+          <i class="fas fa-phone-slash"></i> Reject
+        </button>
+      </div>
+    </div>
+
+    <script>
+      // popup helpers
+      function showPopup(id, text) {
+        const t = document.getElementById(id + "-text");
+        if (t) t.innerText = text || "";
+        document.getElementById(id).style.display = "block";
+      }
+      function hidePopup(id) {
+        document.getElementById(id).style.display = "none";
+      }
+
+      // Define APP_CONTEXT for global scripts
+      window.APP_CONTEXT = {
+        me: "{{ request.user.username|escapejs }}",
+        // wsUrl will be defined dynamically in chat.js or overridden in room.html
+      };
+    </script>
+    <script src="{% static 'js/global-call-manager.js' %}"></script>
+    <script src="{% static 'js/chat.js' %}"></script>
+    {% block scripts %}{% endblock %}
+    <script>
+      // Event listeners for global call popup
+      document.getElementById("btnAcceptCall").addEventListener("click", () => {
+        window.GlobalCallManager.acceptCall();
+      });
+
+      document.getElementById("btnRejectCall").addEventListener("click", () => {
+        window.GlobalCallManager.rejectCall();
+      });
+    </script>
+  </body>
+</html>
+_______________________________________________________________________________________________
+videochat_app/chat/templates/chat/home.html
+
+{% extends "chat/base.html" %} {% block title %}Home{% endblock %}
+{% block sidebar %}
+<ul id="sidebarUsers">
+  {% if users %} {% for u in users %}
+  <li class="chat-item" data-username="{{ u.username }}">
+    <a class="chat-item__link" href="{% url 'room_with_user' u.username %}">
+      <div class="chat-item__avatar">{{ u.username|first|upper }}</div>
+      <div class="chat-item__meta">
+        <div class="chat-item__top">
+          <span class="chat-item__name">@{{ u.username }}</span>
+          <span class="user-status"> (Offline)</span> {# Initial status, will be
+          updated by JS #}
+          <span class="chat-item__time"></span>
+        </div>
+        <div class="chat-item__last">Start a new chat</div>
+      </div>
+    </a>
+  </li>
+  {% endfor %} {% else %}
+  <li class="chat-item--empty">No other users yet.</li>
+  {% endif %}
+</ul>
+{% endblock %} {% block content %}
+<div class="empty-state">
+  <h2>Welcome to WhatsApp Clone</h2>
+  <p>Click on a chat to start messaging or start a new one.</p>
+</div>
+{% endblock %}
+_______________________________________________________________________________________________
+videochat_app/chat/templates/chat/notifications.html
+
+{% extends "chat/base.html" %}
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2>Notifications</h2>
+  <ul>
+    {% for log in logs %}
+    <li style="margin:6px 0;">
+      <strong>{{ log.sender }}</strong>
+      {% if log.type == "chat" %}
+      sent a message: “{{ log.message }}”
+      {% elif log.type == "offer" %}
+      started a call
+      {% elif log.type == "answer" %}
+      answered a call
+      {% elif log.type == "ice" %}
+      exchanged network info
+      {% else %}
+      {{ log.type }} {{ log.message }}
+      {% endif %}
+      <small style="color:#666;"> — {{ log.timestamp }}</small>
+    </li>
+    {% empty %}
+    <li>No notifications yet.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}
+_______________________________________________________________________________________________
+videochat_app/chat/templates/chat/room.html
+
+{% extends "chat/base.html" %} {% load static %} {% block title %}Chat with @{{ peer.username }} {% endblock %}
+{% block sidebar %}
+<ul id="sidebarUsers">
+  {% for u in users %}
+  <li class="chat-item {% if u.username == peer.username %}is-active{% endif %}" data-username="{{ u.username }}">
+    <a class="chat-item__link" href="{% url 'room_with_user' u.username %}">
+      <div class="chat-item__avatar">{{ u.username|first|upper }}</div>
+      <div class="chat-item__meta">
+        <div class="chat-item__top">
+          <span class="chat-item__name">@{{ u.username }}</span>
+          <span class="user-status"> (Offline)</span> {# Initial status, will be
+          updated by JS #}
+          <span class="chat-item__time"></span>
+        </div>
+        <div class="chat-item__last"></div>
+      </div>
+    </a>
+  </li>
+  {% empty %}
+  <li class="chat-item--empty">No other users yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %} {% block content %}
+<div class="chat">
+  <div class="chat__header">
+    <div class="peer">
+      <div class="peer__avatar">{{ peer.username|first|upper }}</div>
+      <div class="peer__info">
+        <div class="peer__name">@{{ peer.username }}</div>
+        <div class="peer__status" id="chatHeaderStatus" data-peer-username="{{ peer.username }}">
+          Offline
+        </div>
+        {# Initial status, will be updated by JS #}
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btnStartCall" class="btn btn-ghost">
+        <i class="fas fa-video"></i>
+      </button>
+    </div>
+  </div>
+
+  <div id="chatBox" class="chat__messages">
+    {% for m in history %}
+    <div class="msg {% if m.sender == request.user.username %}msg--me{% else %}msg--peer{% endif %}">
+      <div class="msg__bubble">
+        <div class="msg__text">{{ m.message }}</div>
+        <div class="msg__time">{{ m.timestamp|date:"H:i" }}</div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="chat__empty">
+      <p>Say hello to @{{ peer.username }}!</p>
+    </div>
+    {% endfor %}
+  </div>
+
+  <form id="messageForm" class="composer">
+    <button class="composer__btn"><i class="fas fa-smile"></i></button>
+    <input id="messageInput" type="text" placeholder="Type a message" required class="composer__input" />
+    <button class="composer__btn" type="submit">
+      <i class="fas fa-paper-plane"></i>
+    </button>
+  </form>
+</div>
+
+<!-- Global Call Window (Floating/Draggable) -->
+<div id="callWindow" class="call-window" style="display: none">
+  <div class="call-header">
+    <h4 id="callTitle">Video Call with @{{ peer.username }}</h4>
+    <div class="call-header-actions">
+      <button id="btnMinimizeMaximize" class="btn btn-ghost">
+        <i class="fas fa-expand-alt"></i>
+      </button>
+      <button id="btnEndCall" class="btn btn-danger">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  </div>
+  <div class="call-body">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="localVideo" autoplay playsinline muted></video>
+    <div class="call-controls">
+      <button id="btnToggleMic" class="btn">
+        <i class="fas fa-microphone"></i>
+      </button>
+      <button id="btnToggleCamera" class="btn">
+        <i class="fas fa-video"></i>
+      </button>
+      <button id="btnHangUp" class="btn btn-danger">
+        <i class="fas fa-phone-slash"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Inline incoming call box (callee only) - Hidden by default, managed by JS -->
+<div id="incomingCallBox" class="popup" style="display: none">
+  <h4>Incoming Call</h4>
+  <p id="incomingCallText"></p>
+  <div class="actions">
+    <button id="btnAcceptInline" class="btn btn-primary">
+      <i class="fas fa-phone"></i> Accept
+    </button>
+    <button id="btnRejectInline" class="btn btn-danger">
+      <i class="fas fa-phone-slash"></i> Reject
+    </button>
+  </div>
+</div>
+
+{% endblock %} {% block scripts %} {{
+webrtc_ice_servers|json_script:'webrtc_ice_servers' }}
+<script>
+  // Extend APP_CONTEXT with room-specific details
+  window.APP_CONTEXT.roomName = "{{ room_name }}";
+  window.APP_CONTEXT.wsUrl =
+    (location.protocol === "https:" ? "wss://" : "ws://") +
+    location.host +
+    "/ws/chat/" +
+    "{{ room_name }}" +
+    "/";
+  window.APP_CONTEXT.iceServers = JSON.parse(
+    document.getElementById("webrtc_ice_servers").textContent
+  );
+
+  // Event listener for the hang up button in the call window
+  document.getElementById("btnHangUp").addEventListener("click", () => {
+    window.GlobalCallManager.endCall();
+  });
+
+  // Event listeners for inline incoming call box
+  document.getElementById("btnAcceptInline").addEventListener("click", () => {
+    window.GlobalCallManager.acceptCall();
+  });
+
+  document.getElementById("btnRejectInline").addEventListener("click", () => {
+    window.GlobalCallManager.rejectCall();
+  });
+
+  // Update call title when call starts/changes
+  window.addEventListener("globalCallStateChange", (event) => {
+    const callState = event.detail;
+    if (callState && callState.type === "active") {
+      document.getElementById(
+        "callTitle"
+      ).innerText = `Video Call with @${callState.peer}`;
+    } else {
+      document.getElementById("callTitle").innerText = "Video Call";
+    }
+  });
+</script>
+<script src="{% static 'js/webrtc.js' %}"></script>
+{% endblock %}
+_______________________________________________________________________________________________
+videochat_app/chat/templates/registration/login.html
+
+{% extends "base_auth.html" %} {% load static %} {% block title %} Login {% endblock title %} {% block content %}
+<h2>Login</h2>
+<div class="form-wrapper">
+  <form method="post">
+    {% csrf_token %} {% if form.errors %}
+    <div class="error-box">
+      {% for field in form %} {% for error in field.errors %}
+      <div>{{ error }}</div>
+      {% endfor %} {% endfor %} {% for error in form.non_field_errors %}
+      <div>{{ error }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <input type="text" name="username" placeholder="Phone number or email" required />
+    <input type="password" name="password" placeholder="Password" required />
+    <button type="submit" name="login_submit">Login</button>
+  </form>
+</div>
+{% endblock content %}
+_______________________________________________________________________________________________
+videochat_app/chat/templates/registration/signup.html
+
+{% extends "base_auth.html" %} {% load static %} {% block title %}Sign Up{% endblock title %} {% block content %}
+<h2>Sign Up</h2>
+<div class="form-wrapper">
+  <form method="post">
+    {% csrf_token %} {% if form.errors %}
+    <div class="error-box">
+      {% for field in form %} {% for error in field.errors %}
+      <div>{{ error }}</div>
+      {% endfor %} {% endfor %} {% for error in form.non_field_errors %}
+      <div>{{ error }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <input type="text" name="username" placeholder="Username" required />
+    <input type="email" name="email" placeholder="Email" />
+    <input type="password" name="password1" placeholder="Password" required />
+    <input type="password" name="password2" placeholder="Confirm Password" required />
+    <button type="submit">Sign Up</button>
+  </form>
+</div>
+{% endblock content %}
+_______________________________________________________________________________________________
+videochat_app/chat/templates/base_auth.html
+
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Auth{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/base_auth.css' %}" />
+  </head>
+
+  <body>
+    <div class="auth-container">
+      <div class="auth-header">
+        <button
+          id="login-tab"
+          class="{% if request.resolver_match.url_name == 'login' %}active{% endif %}"
+          onclick="location.href='{% url 'login' %}'"
+        >
+          Login
+        </button>
+        <button
+          id="signup-tab"
+          class="{% if request.resolver_match.url_name == 'signup' %}active{% endif %}"
+          onclick="location.href='{% url 'signup' %}'"
+        >
+          Sign Up
+        </button>
+      </div>
+      <div class="auth-content">{% block content %}{% endblock %}</div>
+    </div>
+  </body>
+</html>
+_______________________________________________________________________________________________
+videochat_app/chat/consumers.py
+
+import json
+from datetime import datetime
+
+from asgiref.sync import sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+
+from .mongo import get_db
+
+# Global set to keep track of online users (for InMemoryChannelLayer)
+# In a production environment with multiple Daphne instances, this would need to be
+# replaced with a shared state mechanism like Redis.
+online_users = set()
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
+        self.room_group_name = f"chat_{self.room_name}"
+
+        user = self.scope.get("user")
+        self.username = (
+            str(user.username) if getattr(user, "is_authenticated", False) else "Anonymous"
+        )
+
+        # Add user to a specific group for direct messaging (if needed, otherwise room_group_name is enough)
+        self.user_channel_name = f"user_{self.username}"
+        await self.channel_layer.group_add(self.user_channel_name, self.channel_name)
+
+        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        await self.channel_layer.group_add("global_presence", self.channel_name) # Add to global presence group
+        await self.accept()
+
+        # Add user to online users set and broadcast status
+        if self.username != "Anonymous":
+            online_users.add(self.username)
+            await self.broadcast_user_status(self.username, True)
+
+            # Send the current list of online users to the newly connected user
+            online_users_list = await self.get_online_users()
+            await self.send(text_data=json.dumps({
+                "type": "online_users_list",
+                "users": online_users_list,
+            }))
+
+        try:
+            join_msg = {
+                "type": "join",
+                "from": self.username,
+                "event_type": "join",
+                "sender": self.username,
+            }
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {"type": "room_event", "message": join_msg},
+            )
+        except Exception:
+            pass
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        await self.channel_layer.group_discard(self.user_channel_name, self.channel_name)
+        await self.channel_layer.group_discard("global_presence", self.channel_name) # Discard from global presence group
+
+        # Remove user from online users set and broadcast status
+        if self.username != "Anonymous":
+            online_users.discard(self.username)
+            await self.broadcast_user_status(self.username, False)
+
+        try:
+            leave_msg = {
+                "type": "leave",
+                "from": self.username,
+                "event_type": "leave",
+                "sender": self.username,
+            }
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {"type": "room_event", "message": leave_msg},
+            )
+        except Exception:
+            pass
+
+    async def broadcast_user_status(self, username, is_online):
+        """Broadcasts a user's online/offline status to all relevant groups."""
+        status_message = {
+            "type": "user_status",
+            "username": username,
+            "is_online": is_online,
+        }
+        # Broadcast to a global presence group (if one existed) or to all rooms
+        # For simplicity, broadcasting to all rooms for now.
+        # In a larger app, a dedicated 'presence' group would be better.
+        await self.channel_layer.group_send(
+            "global_presence",
+            {"type": "send_user_status", "message": status_message},
+        )
+
+    async def send_user_status(self, event):
+        """Handles the 'send_user_status' event to send status updates to the websocket."""
+        message = event["message"]
+        await self.send(text_data=json.dumps(message))
+
+    async def get_online_users(self):
+        """Returns the list of currently online users."""
+        return list(online_users)
+
+    async def receive(self, text_data=None, bytes_data=None):
+        if not text_data:
+            return
+
+        try:
+            data = json.loads(text_data)
+        except Exception:
+            return
+
+        msg_type = data.get("type")
+        payload = {k: v for k, v in data.items() if k != "type"}
+        sender = self.username
+
+        out = {
+            "type": msg_type,
+            "from": sender,
+            "event_type": msg_type,
+            "sender": sender,
+            **payload,
+        }
+
+        db = get_db()
+        if db:
+            try:
+                if msg_type == "chat":
+                    doc = {
+                        "room": self.room_name,
+                        "sender": sender,
+                        "message": payload.get("message", ""),
+                        "timestamp": datetime.utcnow(),
+                    }
+                    await sync_to_async(db.chats.insert_one)(doc)
+
+                elif msg_type in (
+                    "offer", "answer", "ice",
+                    "call", "missed_call",
+                    "end_call", "reject"
+                ):
+                    doc = {
+                        "room": self.room_name,
+                        "sender": sender,
+                        "type": msg_type,
+                        "payload": payload,
+                        "timestamp": datetime.utcnow(),
+                    }
+                    await sync_to_async(db.notifications.insert_one)(doc)
+
+            except Exception as e:
+                print(f"[MongoDB] save failed: {e}")
+
+        # Determine if the message should be sent to a specific user or broadcast
+        to_user = data.get("to")
+        if msg_type == "get_online_users":
+            online_users_list = await self.get_online_users()
+            await self.send(text_data=json.dumps({
+                "type": "online_users_list",
+                "users": online_users_list,
+            }))
+        elif to_user:
+            # Send directly to the target user's channel
+            await self.channel_layer.group_send(
+                f"user_{to_user}", # Send to user-specific channel
+                {"type": "room_event", "message": out},
+            )
+        else:
+            # Broadcast to the entire room group
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {"type": "room_event", "message": out},
+            )
+
+    async def room_event(self, event):
+        message = event.get("message", {})
+        try:
+            await self.send(text_data=json.dumps(message))
+        except Exception:
+            pass
+_______________________________________________________________________________________________
+videochat_app/chat/mongo.py
+
+import os
+from pymongo import MongoClient
+from django.conf import settings
+
+_client = None
+_db = None
+
+def _init():
+    global _client, _db
+    uri = getattr(settings, "MONGO_URI", "") or os.getenv("MONGO_URI", "")
+    dbname = getattr(settings, "MONGO_DB_NAME", "") or os.getenv("MONGO_DB_NAME", "")
+    if uri and dbname:
+        try:
+            _client = MongoClient(uri, serverSelectionTimeoutMS=3000)
+            _client.server_info()
+            _db = _client[dbname]
+        except Exception as e:
+            print(f"[MongoDB] connection failed: {e}")
+            _client = None
+            _db = None
+
+def get_db():
+    global _db
+    if _db is None:
+        _init()
+    return _db
+_______________________________________________________________________________________________
+videochat_app/chat/routing.py
+
+from django.urls import re_path
+from .consumers import ChatConsumer
+
+websocket_urlpatterns = [
+    re_path(r"^ws/chat/(?P<room_name>[^/]+)/$", ChatConsumer.as_asgi()),
+]
+_______________________________________________________________________________________________
+videochat_app/chat/urls.py
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('', views.home, name='home'),
+    path('notifications/', views.notifications, name='notifications'),
+    path('room/<str:username>/', views.room_with_user, name='room_with_user'),
+    path('call/<str:username>/', views.room_with_user, name='call_user'),  # legacy alias
+]
+_______________________________________________________________________________________________
+videochat_app/chat/views.py
+
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import get_user_model
+from django.shortcuts import render, get_object_or_404
+from django.http import Http404
+from django.conf import settings # Import settings
+from chat.mongo import get_db  # you already use this elsewhere
+
+User = get_user_model()
+
+def _pair_room_name(a, b):
+    a, b = sorted([a, b])
+    return f"{a}_{b}"
+
+@login_required
+def home(request):
+    users = User.objects.exclude(id=request.user.id).order_by("username")
+    return render(request, "chat/home.html", {"users": users})
+
+@login_required
+def room_with_user(request, username):
+    peer = get_object_or_404(User, username=username)
+    if peer.id == request.user.id:
+        raise Http404("Cannot call yourself.")
+
+    room_name = _pair_room_name(request.user.username, peer.username)
+
+    # preload last 50 chat messages from Mongo (if available)
+    history = []
+    db = get_db()
+    if db:
+        try:
+            cur = db.chats.find({"room": room_name}).sort("timestamp", -1).limit(50)
+            history = list(reversed(list(cur)))
+        except Exception as e:
+            print(f"[MongoDB] fetch history failed: {e}")
+
+    users = User.objects.exclude(id=request.user.id).order_by("username")
+    return render(
+        request,
+        "chat/room.html",
+        {
+            "peer": peer,
+            "room_name": room_name,
+            "history": history,
+            "users": users,
+            "webrtc_ice_servers": settings.WEBRTC_ICE_SERVERS, # Pass ICE servers to template
+        },
+    )
+
+@login_required
+def notifications(request):
+    logs = []
+    db = get_db()
+    if db:
+        try:
+            cursor = db.notifications.find().sort("timestamp", -1).limit(50)
+            logs = list(cursor)
+        except Exception as e:
+            print(f"[MongoDB] fetch notifications failed: {e}")
+    return render(request, "chat/notifications.html", {"logs": logs})
+_______________________________________________________________________________________________
+static/css/app.css
+
+/* WhatsApp-like Theme */
+
+/* Variables */
+:root {
+    --whatsapp-green: #075e54;
+    --whatsapp-light-green: #128c7e;
+    --whatsapp-bg-dark: #0b141a;
+    --whatsapp-bg-light: #111b21;
+    --whatsapp-text-primary: #e9edef;
+    --whatsapp-text-secondary: #8696a0;
+    --whatsapp-border: #222e35;
+    --whatsapp-bubble-me: #005c4b;
+    --whatsapp-bubble-peer: #202c33;
+    --whatsapp-icon: #aebac1;
+}
+
+/* Reset-ish */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--whatsapp-bg-dark);
+    color: var(--whatsapp-text-primary);
+}
+
+/* Buttons */
+.btn {
+    border: 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s ease;
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--whatsapp-icon);
+}
+
+.btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-primary {
+    background: var(--whatsapp-light-green);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    filter: brightness(1.1);
+}
+
+.btn-danger {
+    background: #e63d3d;
+    color: #fff;
+}
+
+/* Topbar */
+.topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--whatsapp-green);
+    border-bottom: 1px solid var(--whatsapp-green);
+    color: #fff;
+}
+
+.brand {
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 18px;
+}
+
+.topbar__right {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.topbar__right span {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.topbar__right .btn-ghost {
+    color: #fff;
+}
+
+.whoami {
+    opacity: .9;
+}
+
+.logout-form {
+    display: inline;
+}
+
+/* Workspace (below topbar) */
+.workspace {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    height: calc(100vh - 52px);
+    margin-top: 52px;
+}
+
+/* Left pane */
+.pane--left {
+    background: var(--whatsapp-bg-light);
+    border-right: 1px solid var(--whatsapp-border);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+.sidebar__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: var(--whatsapp-bubble-peer);
+    border-bottom: 1px solid var(--whatsapp-border);
+}
+
+.sidebar__header .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #aebac1;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    color: var(--whatsapp-bg-light);
+}
+
+.sidebar__header .actions {
+    display: flex;
+    gap: 15px;
+}
+
+.sidebar__header .actions .btn-ghost {
+    font-size: 20px;
+    padding: 5px;
+    border-radius: 50%;
+}
+
+.sidebar__search {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--whatsapp-border);
+    background: var(--whatsapp-bg-light);
+}
+
+.sidebar__search input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 20px;
+    border: none;
+    background: var(--whatsapp-bubble-peer);
+    color: var(--whatsapp-text-primary);
+    outline: none;
+    font-size: 14px;
+}
+
+.sidebar__search input::placeholder {
+    color: var(--whatsapp-text-secondary);
+}
+
+.chat-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.chat-item {
+    border-bottom: 1px solid var(--whatsapp-border);
+}
+
+.chat-item--empty {
+    padding: 16px;
+    color: var(--whatsapp-text-secondary);
+    text-align: center;
+}
+
+.chat-item__link {
+    display: grid;
+    grid-template-columns: 50px 1fr auto;
+    gap: 10px;
+    padding: 12px 16px;
+    text-decoration: none;
+    color: inherit;
+    align-items: center;
+}
+
+.chat-item.is-active,
+.chat-item__link:hover {
+    background: var(--whatsapp-bubble-peer);
+}
+
+.chat-item__avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #aebac1;
+    color: var(--whatsapp-bg-light);
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.chat-item__meta {
+    overflow: hidden;
+}
+
+.chat-item__top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 15px;
+    margin-bottom: 2px;
+}
+
+.chat-item__name {
+    font-weight: 600;
+    color: var(--whatsapp-text-primary);
+}
+
+.chat-item__time {
+    color: var(--whatsapp-text-secondary);
+    font-size: 12px;
+}
+
+.chat-item__last {
+    color: var(--whatsapp-text-secondary);
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-item__badge {
+    align-self: center;
+    background: var(--whatsapp-light-green);
+    color: #fff;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+}
+
+/* Right pane / Chat window */
+.pane--right {
+    background: var(--whatsapp-bg-dark);
+    display: flex;
+    flex-direction: column;
+}
+
+.chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    /* Ensure chat container takes full height */
+}
+
+.chat__header {
+    height: 60px;
+    flex: 0 0 60px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--whatsapp-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--whatsapp-bubble-peer);
+}
+
+.peer {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.peer__avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #aebac1;
+    color: var(--whatsapp-bg-light);
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.peer__name {
+    font-weight: 600;
+    color: var(--whatsapp-text-primary);
+}
+
+.peer__status {
+    font-size: 12px;
+    color: var(--whatsapp-text-secondary);
+}
+
+.chat__header .actions {
+    display: flex;
+    gap: 15px;
+}
+
+.chat__header .actions .btn-ghost {
+    font-size: 20px;
+    padding: 5px;
+    border-radius: 50%;
+}
+
+.chat__messages {
+    flex-grow: 1;
+    /* Allow messages to grow and take available space */
+    overflow-y: auto;
+    /* background-image: url('/static/img/whatsapp-bg.png'); */
+    /* Placeholder for chat background */
+    background-size: cover;
+    background-position: center;
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    /* Ensure messages push to the top, leaving space for composer */
+    justify-content: flex-end;
+}
+
+.msg {
+    display: flex;
+    margin: 8px 0;
+}
+
+.msg--me {
+    justify-content: flex-end;
+}
+
+.msg__bubble {
+    max-width: 70%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--whatsapp-bubble-peer);
+    color: var(--whatsapp-text-primary);
+    position: relative;
+}
+
+.msg--me .msg__bubble {
+    background: var(--whatsapp-bubble-me);
+}
+
+.msg__text {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.msg__time {
+    text-align: right;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 4px;
+}
+
+.chat__empty {
+    color: var(--whatsapp-text-secondary);
+    text-align: center;
+    margin-top: 40px;
+}
+
+.composer {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--whatsapp-bubble-peer);
+    align-items: center;
+    flex-shrink: 0;
+    /* Prevent composer from shrinking */
+}
+
+.composer__btn {
+    background: transparent;
+    border: none;
+    color: var(--whatsapp-icon);
+    font-size: 24px;
+    padding: 0;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+}
+
+.composer__btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.composer__input {
+    border: none;
+    background: var(--whatsapp-bg-light);
+    color: var(--whatsapp-text-primary);
+    padding: 10px 12px;
+    border-radius: 20px;
+    outline: none;
+    font-size: 15px;
+}
+
+.composer__input::placeholder {
+    color: var(--whatsapp-text-secondary);
+}
+
+/* Popups (WhatsApp style) */
+.popup {
+    position: fixed;
+    right: 20px;
+    background: var(--whatsapp-bubble-peer);
+    border: 1px solid var(--whatsapp-border);
+    border-radius: 8px;
+    padding: 14px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .4);
+    min-width: 280px;
+    display: none;
+    z-index: 2000;
+    color: var(--whatsapp-text-primary);
+}
+
+#popup-message {
+    bottom: 20px;
+}
+
+#popup-call {
+    bottom: 120px;
+}
+
+.popup h4 {
+    margin: 0 0 6px 0;
+    font-size: 16px;
+    color: var(--whatsapp-light-green);
+}
+
+.popup p {
+    color: var(--whatsapp-text-secondary);
+    margin: 0;
+}
+
+.popup .actions {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+/* Generic empty state */
+.empty-state {
+    place-self: center;
+    text-align: center;
+    color: var(--whatsapp-text-secondary);
+    background: var(--whatsapp-bubble-peer);
+    border: 1px solid var(--whatsapp-border);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 400px;
+}
+
+/* Floating Call Window */
+.call-window {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--whatsapp-bg-dark);
+    border-radius: 12px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+    z-index: 3000;
+    display: none;
+    min-width: 200px;
+    min-height: 150px;
+    max-width: 90vw;
+    max-height: 90vh;
+    transition: all 0.3s ease-in-out;
+    border: 1px solid var(--whatsapp-border);
+}
+
+.call-window.minimized {
+    width: 300px;
+    height: 200px;
+}
+
+.call-window.maximized {
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+}
+
+.call-header {
+    background: var(--whatsapp-bubble-peer);
+    color: var(--whatsapp-text-primary);
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: grab;
+    border-bottom: 1px solid var(--whatsapp-border);
+}
+
+.call-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.call-header .btn {
+    font-size: 14px;
+    width: 28px;
+    height: 28px;
+    background: var(--whatsapp-bg-light);
+    color: var(--whatsapp-icon);
+    border-radius: 50%;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.call-header .btn:hover {
+    background: var(--whatsapp-border);
+}
+
+.call-body {
+    position: relative;
+    width: 100%;
+    height: calc(100% - 44px);
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.call-window.minimized .call-body {
+    height: calc(100% - 44px);
+}
+
+.call-window.maximized .call-body {
+    height: calc(100% - 44px);
+}
+
+#remoteVideo {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+
+#localVideo {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    width: 120px;
+    height: 90px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 2px solid var(--whatsapp-light-green);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    background: #000;
+    transition: all 0.3s ease-in-out;
+}
+
+.call-window.maximized #localVideo {
+    width: 180px;
+    height: 135px;
+}
+
+.call-window.maximized #localVideo.hidden {
+    display: none;
+}
+
+.call-controls {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 8px 15px;
+    border-radius: 25px;
+    backdrop-filter: blur(5px);
+}
+
+.call-controls .btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 20px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease;
+    padding: 0;
+}
+
+.call-controls .btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.call-controls .btn.active {
+    background: var(--whatsapp-light-green);
+}
+
+.call-controls .btn.active:hover {
+    background: #00c29e;
+}
+
+.call-controls .btn-danger {
+    background: #e63d3d;
+}
+
+.call-controls .btn-danger:hover {
+    background: #ff5c5c;
+}
+_______________________________________________________________________________________________
+static/css/base_auth.css
+
+body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #f0f2f5;
+    /* Light grey background */
+    margin: 0;
+    padding: 20px;
+    /* Add some padding for mobile view */
+    box-sizing: border-box;
+}
+
+.auth-container {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 400px;
+    /* Max width for desktop */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.auth-header {
+    display: flex;
+    justify-content: space-around;
+    background-color: #075e54;
+    /* WhatsApp dark green */
+    padding: 15px 0;
+    border-bottom: 1px solid #ece5dd;
+}
+
+.auth-header button {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 18px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 5px 10px;
+    transition: color 0.3s ease;
+}
+
+.auth-header button.active {
+    color: white;
+    border-bottom: 2px solid white;
+}
+
+.auth-header button:hover:not(.active) {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.auth-content {
+    padding: 25px;
+    background-color: #ece5dd;
+    /* WhatsApp light background */
+    flex-grow: 1;
+}
+
+h2 {
+    text-align: center;
+    color: #1f2d3d;
+    /* Darker text for headings */
+    margin-bottom: 25px;
+    font-size: 24px;
+}
+
+.form-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    /* Rounded input fields */
+    font-size: 16px;
+    box-sizing: border-box;
+    background-color: #fdfdfd;
+    transition: border-color 0.2s ease;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus {
+    border-color: #25d366;
+    /* WhatsApp green on focus */
+    outline: none;
+}
+
+button[type="submit"] {
+    width: 100%;
+    padding: 12px 15px;
+    background: #25d366;
+    /* WhatsApp green button */
+    color: white;
+    border: none;
+    border-radius: 20px;
+    /* Rounded buttons */
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+button[type="submit"]:hover {
+    background: #1da851;
+    /* Darker green on hover */
+}
+
+.error-box {
+    background: #ffebee;
+    /* Light red for errors */
+    color: #d32f2f;
+    /* Dark red text */
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 15px;
+    border: 1px solid #ef9a9a;
+}
+
+.error-box div {
+    margin-bottom: 5px;
+}
+
+.error-box div:last-child {
+    margin-bottom: 0;
+}
+
+.link-text {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 15px;
+    color: #555;
+}
+
+.link-text a {
+    color: #075e54;
+    /* WhatsApp dark green for links */
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.link-text a:hover {
+    text-decoration: underline;
+}
+
+/* Mobile-first adjustments */
+@media (max-width: 600px) {
+    body {
+        padding: 0;
+        background: #075e54;
+        /* Dark green background for full mobile screen */
+    }
+
+    .auth-container {
+        border-radius: 0;
+        box-shadow: none;
+        height: 100vh;
+        max-width: none;
+    }
+
+    .auth-content {
+        padding: 20px;
+    }
+
+    h2 {
+        font-size: 22px;
+        margin-bottom: 20px;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    button[type="submit"] {
+        padding: 15px;
+        font-size: 17px;
+    }
+}
+_______________________________________________________________________________________________
+static/js/chat.js
+
+(() => {
+  const { me, roomName } = window.APP_CONTEXT;
+  const showPopup = window.showPopup || ((id, text) => {});
+  const hidePopup = window.hidePopup || ((id) => {});
+
+  const chatBox = document.getElementById("chatBox");
+  const messageInput = document.getElementById("messageInput");
+  const messageForm = document.getElementById("messageForm");
+  const sidebarUsers = document.getElementById("sidebarUsers"); // Assuming an element with this ID for the user list
+  const chatHeaderStatus = document.getElementById("chatHeaderStatus"); // Assuming an element for chat header status
+
+  let ws;
+  const onlineUsers = new Set(); // Client-side tracking of online users
+
+  function sendWS(payload) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+    }
+  }
+
+  function appendMessage(sender, message, timestamp) {
+    const msgDiv = document.createElement("div");
+    msgDiv.classList.add("msg");
+    msgDiv.classList.add(sender === me ? "msg--me" : "msg--peer");
+
+    const msgBubble = document.createElement("div");
+    msgBubble.classList.add("msg__bubble");
+
+    const msgText = document.createElement("div");
+    msgText.classList.add("msg__text");
+    msgText.innerText = message;
+
+    const msgTime = document.createElement("div");
+    msgTime.classList.add("msg__time");
+    msgTime.innerText = timestamp; // Format as needed, e.g., new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+    msgBubble.appendChild(msgText);
+    msgBubble.appendChild(msgTime);
+    msgDiv.appendChild(msgBubble);
+    chatBox.appendChild(msgDiv);
+
+    // Scroll to the bottom of the chat box
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function connectWS() {
+    ws = new WebSocket(window.APP_CONTEXT.wsUrl);
+
+    ws.onmessage = (evt) => {
+      const data = JSON.parse(evt.data);
+      const t = data.type;
+      const from = data.from;
+      const to = data.to;
+
+      if (to && to !== me) return;
+
+      switch (t) {
+        case "chat":
+          console.log("Chat:", from, data.message);
+          // Append new chat message to the chat box
+          const timestamp = new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }); // Or use data.timestamp if available and formatted
+          appendMessage(from, data.message, timestamp);
+          break;
+
+        case "user_status":
+          handleUserStatus(data.username, data.is_online);
+          break;
+
+        case "online_users_list":
+          updateOnlineUsersList(data.users);
+          break;
+
+        case "missed_call":
+          showPopup("popup-message", "Missed call from " + from);
+          setTimeout(() => hidePopup("popup-message"), 4000);
+          break;
+
+        case "end_call":
+          // Handle graceful call ending if peer goes inactive during a call
+          // This assumes `webrtc.js` has a function to end the call
+          if (window.webrtc && window.webrtc.endCall) {
+            window.webrtc.endCall();
+            showPopup("popup-message", `${from} has ended the call.`);
+            setTimeout(() => hidePopup("popup-message"), 4000);
+          }
+          break;
+
+        default:
+          // ignore all other events
+          break;
+      }
+    };
+
+    ws.onopen = () => {
+      console.log("WebSocket connected.");
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket disconnected. Reconnecting in 3 seconds...");
+      setTimeout(connectWS, 3000);
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
+      ws.close();
+    };
+  }
+
+  // Handle message form submission
+  if (messageForm) {
+    messageForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const message = messageInput.value.trim();
+      if (message) {
+        sendWS({
+          type: "chat",
+          message: message,
+          room: roomName,
+        });
+        messageInput.value = ""; // Clear input field
+      }
+    });
+  }
+
+  function handleUserStatus(username, isOnline) {
+    if (isOnline) {
+      onlineUsers.add(username);
+    } else {
+      onlineUsers.delete(username);
+    }
+    updateSidebarUserStatus(username, isOnline);
+    updateChatHeaderStatus();
+  }
+
+  function updateOnlineUsersList(users) {
+    onlineUsers.clear();
+    users.forEach((user) => onlineUsers.add(user));
+    // Re-render sidebar users to reflect initial online status
+    if (sidebarUsers) {
+      Array.from(sidebarUsers.children).forEach((userDiv) => {
+        const username = userDiv.dataset.username;
+        if (username) {
+          updateSidebarUserStatus(username, onlineUsers.has(username));
+        }
+      });
+    }
+    updateChatHeaderStatus();
+  }
+
+  function updateSidebarUserStatus(username, isOnline) {
+    if (sidebarUsers) {
+      const userDiv = sidebarUsers.querySelector(
+        `[data-username="${username}"]`
+      );
+      if (userDiv) {
+        let statusSpan = userDiv.querySelector(".user-status");
+        if (!statusSpan) {
+          statusSpan = document.createElement("span");
+          statusSpan.classList.add("user-status");
+          userDiv.appendChild(statusSpan);
+        }
+        statusSpan.textContent = isOnline ? " (Online)" : " (Offline)";
+        statusSpan.style.color = isOnline ? "green" : "red";
+      }
+    }
+  }
+
+  function updateChatHeaderStatus() {
+    if (chatHeaderStatus) {
+      const peerUsername = chatHeaderStatus.dataset.peerUsername; // Assuming data-peer-username attribute
+      if (peerUsername) {
+        const isOnline = onlineUsers.has(peerUsername);
+        chatHeaderStatus.textContent = isOnline ? "Online" : "Offline";
+        chatHeaderStatus.style.color = isOnline ? "green" : "red";
+      }
+    }
+  }
+
+  // Expose onlineUsers for webrtc.js to check peer status before calling
+  window.getOnlineUsers = () => onlineUsers;
+
+  connectWS();
+})();
+_______________________________________________________________________________________________
+static/js/global-call-manager.js
+
+// Global Call Manager - Handles video calls across chat switches
+(() => {
+  "use strict";
+
+  // Global call state
+  window.GlobalCallManager = {
+    currentCall: null,
+    incomingCall: null,
+    localStream: null,
+    remoteStream: null,
+    isInitialized: false,
+    currentPeerConnection: null,
+    currentWebSocket: null,
+    isMinimized: true,
+    isMicOn: true,
+    isCamOn: true,
+
+    // UI elements
+    callWindow: null,
+    localVideo: null,
+    remoteVideo: null,
+    btnMinimizeMaximize: null,
+    btnEndCall: null,
+    btnToggleMic: null,
+    btnToggleCamera: null,
+    btnHangUp: null, // New hang up button
+    callTitle: null,
+
+    // Initialize the global call manager
+    init() {
+      if (this.isInitialized) return;
+      this.isInitialized = true;
+
+      // Get UI references
+      this.callWindow = document.getElementById("callWindow");
+      this.localVideo = document.getElementById("localVideo");
+      this.remoteVideo = document.getElementById("remoteVideo");
+      this.btnMinimizeMaximize = document.getElementById("btnMinimizeMaximize");
+      this.btnEndCall = document.getElementById("btnEndCall"); // This is the 'X' button
+      this.btnToggleMic = document.getElementById("btnToggleMic");
+      this.btnToggleCamera = document.getElementById("btnToggleCamera");
+      this.btnHangUp = document.getElementById("btnHangUp"); // Reference the new hang up button
+      this.callTitle = document.getElementById("callTitle");
+
+      // Add event listeners
+      if (this.btnMinimizeMaximize) {
+        this.btnMinimizeMaximize.addEventListener("click", () =>
+          this.toggleMinimizeMaximize()
+        );
+      }
+      if (this.btnEndCall) {
+        this.btnEndCall.addEventListener("click", () => this.endCall());
+      }
+      if (this.btnToggleMic) {
+        this.btnToggleMic.addEventListener("click", () => this.toggleMic());
+      }
+      if (this.btnToggleCamera) {
+        this.btnToggleCamera.addEventListener("click", () =>
+          this.toggleCamera()
+        );
+      }
+      if (this.btnHangUp) {
+        this.btnHangUp.addEventListener("click", () => this.endCall());
+      }
+
+      // Make call window draggable
+      this.makeDraggable(
+        this.callWindow,
+        this.callWindow.querySelector(".call-header")
+      );
+
+      // Listen for storage changes to sync across tabs/pages
+      window.addEventListener("storage", (e) => {
+        if (e.key === "activeCall") {
+          this.handleCallStateChange(e.newValue);
+        }
+      });
+
+      // Check for existing call state on page load
+      this.restoreCallState();
+
+      // Set up periodic cleanup of expired calls
+      setInterval(() => this.cleanupExpiredCalls(), 5000);
+    },
+
+    // Set local video stream
+    setLocalStream(stream) {
+      this.localStream = stream;
+      if (this.localVideo) {
+        this.localVideo.srcObject = stream;
+      }
+      this.updateControlButtons();
+    },
+
+    // Set remote video stream
+    setRemoteStream(stream) {
+      this.remoteStream = stream;
+      if (this.remoteVideo) {
+        this.remoteVideo.srcObject = stream;
+      }
+    },
+
+    // Show the call window
+    showCallWindow() {
+      if (this.callWindow) {
+        this.callWindow.style.display = "block";
+        // When showing, default to maximized for better initial experience
+        this.callWindow.classList.remove("minimized");
+        this.callWindow.classList.add("maximized");
+        this.isMinimized = false; // Set to false as it's maximized
+        this.updateMinimizeMaximizeIcon();
+        this.updateControlButtons();
+        this.updateLocalVideoVisibility(); // Ensure local video visibility is correct
+      }
+    },
+
+    // Hide the call window
+    hideCallWindow() {
+      if (this.callWindow) {
+        this.callWindow.style.display = "none";
+        this.callWindow.classList.remove("minimized", "maximized");
+      }
+    },
+
+    // Toggle minimize/maximize
+    toggleMinimizeMaximize() {
+      if (this.callWindow) {
+        this.isMinimized = !this.isMinimized;
+        this.callWindow.classList.toggle("minimized", this.isMinimized);
+        this.callWindow.classList.toggle("maximized", !this.isMinimized);
+        this.updateMinimizeMaximizeIcon();
+        this.updateLocalVideoVisibility();
+      }
+    },
+
+    // Update minimize/maximize icon
+    updateMinimizeMaximizeIcon() {
+      if (this.btnMinimizeMaximize) {
+        const icon = this.btnMinimizeMaximize.querySelector("i");
+        if (icon) {
+          icon.classList.toggle("fa-expand-alt", this.isMinimized);
+          icon.classList.toggle("fa-compress-alt", !this.isMinimized);
+        }
+      }
+    },
+
+    // Toggle microphone
+    toggleMic() {
+      if (this.localStream) {
+        this.isMicOn = !this.isMicOn;
+        this.localStream.getAudioTracks().forEach((track) => {
+          track.enabled = this.isMicOn;
+        });
+        this.updateControlButtons();
+      }
+    },
+
+    // Toggle camera
+    toggleCamera() {
+      if (this.localStream) {
+        this.isCamOn = !this.isCamOn;
+        this.localStream.getVideoTracks().forEach((track) => {
+          track.enabled = this.isCamOn;
+        });
+        this.updateControlButtons();
+        this.updateLocalVideoVisibility();
+      }
+    },
+
+    // Update control button states
+    updateControlButtons() {
+      if (this.btnToggleMic) {
+        this.btnToggleMic.classList.toggle("active", this.isMicOn);
+        this.btnToggleMic.querySelector("i").className = this.isMicOn
+          ? "fas fa-microphone"
+          : "fas fa-microphone-slash";
+      }
+      if (this.btnToggleCamera) {
+        this.btnToggleCamera.classList.toggle("active", this.isCamOn);
+        this.btnToggleCamera.querySelector("i").className = this.isCamOn
+          ? "fas fa-video"
+          : "fas fa-video-slash";
+      }
+    },
+
+    // Update local video visibility based on camera state and maximized mode
+    updateLocalVideoVisibility() {
+      if (this.localVideo) {
+        const isMaximized = this.callWindow.classList.contains("maximized");
+        if (isMaximized && !this.isCamOn) {
+          this.localVideo.classList.add("hidden");
+        } else {
+          this.localVideo.classList.remove("hidden");
+        }
+      }
+    },
+
+    // Make an element draggable
+    makeDraggable(element, handle) {
+      let pos1 = 0,
+        pos2 = 0,
+        pos3 = 0,
+        pos4 = 0;
+      if (handle) {
+        handle.onmousedown = dragMouseDown;
+      } else {
+        element.onmousedown = dragMouseDown;
+      }
+
+      function dragMouseDown(e) {
+        e = e || window.event;
+        e.preventDefault();
+        // get the mouse cursor position at startup:
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        document.onmouseup = closeDragElement;
+        // call a function whenever the cursor moves:
+        document.onmousemove = elementDrag;
+      }
+
+      function elementDrag(e) {
+        e = e || window.event;
+        e.preventDefault();
+        // calculate the new cursor position:
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        // set the element's new position:
+        element.style.top = element.offsetTop - pos2 + "px";
+        element.style.left = element.offsetLeft - pos1 + "px";
+      }
+
+      function closeDragElement() {
+        // stop moving when mouse button is released:
+        document.onmouseup = null;
+        document.onmousemove = null;
+      }
+    },
+
+    // Save call state to localStorage
+    saveCallState(callData) {
+      const state = {
+        ...callData,
+        timestamp: Date.now(),
+        currentPage: window.location.pathname,
+      };
+      localStorage.setItem("activeCall", JSON.stringify(state));
+    },
+
+    // Get call state from localStorage
+    getCallState() {
+      const stored = localStorage.getItem("activeCall");
+      if (!stored) return null;
+
+      try {
+        const state = JSON.parse(stored);
+        // Expire calls older than 2 minutes
+        if (Date.now() - state.timestamp > 120000) {
+          this.clearCallState();
+          return null;
+        }
+        return state;
+      } catch (e) {
+        this.clearCallState();
+        return null;
+      }
+    },
+
+    // Clear call state
+    clearCallState() {
+      localStorage.removeItem("activeCall");
+      this.currentCall = null;
+      this.incomingCall = null;
+      if (this.localStream) {
+        this.localStream.getTracks().forEach((track) => track.stop());
+        this.localStream = null;
+      }
+      this.remoteStream = null;
+      if (this.localVideo) this.localVideo.srcObject = null;
+      if (this.remoteVideo) this.remoteVideo.srcObject = null;
+      this.hideCallWindow();
+    },
+
+    // Handle incoming call
+    handleIncomingCall(callData) {
+      this.incomingCall = callData;
+      this.saveCallState({
+        type: "incoming",
+        from: callData.from,
+        offer: callData.offer,
+        room: callData.room || this.getCurrentRoom(),
+      });
+
+      // Show global call popup
+      this.showGlobalCallPopup(callData.from);
+    },
+
+    // Handle call acceptance
+    async acceptCall() {
+      if (!this.incomingCall) return;
+
+      try {
+        // Get user media
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+        this.setLocalStream(stream);
+
+        // Update call state
+        this.currentCall = {
+          type: "active",
+          peer: this.incomingCall.from,
+          room: this.incomingCall.room,
+        };
+
+        this.saveCallState(this.currentCall);
+        this.hideGlobalCallPopup();
+        this.showCallWindow(); // Show the floating window
+
+        // Navigate to the correct room if not already there
+        const expectedRoom = this.incomingCall.room;
+        if (this.getCurrentRoom() !== expectedRoom) {
+          const peerUsername = this.incomingCall.from;
+          window.location.href = `/chat/${peerUsername}/`;
+          return;
+        }
+
+        // Trigger acceptance in the current room
+        this.triggerRoomCallAcceptance();
+      } catch (error) {
+        console.error("Error accepting call:", error);
+        this.rejectCall();
+      }
+    },
+
+    // Handle call rejection
+    rejectCall() {
+      if (this.incomingCall) {
+        // Send rejection through current WebSocket if available
+        if (this.currentWebSocket) {
+          this.currentWebSocket.send(
+            JSON.stringify({
+              type: "reject",
+              to: this.incomingCall.from,
+            })
+          );
+        }
+      }
+
+      this.clearCallState();
+      this.hideGlobalCallPopup();
+    },
+
+    // Handle call end
+    endCall() {
+      if (this.currentCall) {
+        // Send end call through current WebSocket if available
+        if (this.currentWebSocket) {
+          this.currentWebSocket.send(
+            JSON.stringify({
+              type: "end_call",
+              to: this.currentCall.peer,
+            })
+          );
+        }
+      }
+
+      // Stop local stream
+      if (this.localStream) {
+        this.localStream.getTracks().forEach((track) => track.stop());
+        this.localStream = null;
+      }
+
+      // Close peer connection
+      if (this.currentPeerConnection) {
+        this.currentPeerConnection.close();
+        this.currentPeerConnection = null;
+      }
+
+      this.clearCallState();
+      this.hideCallWindow();
+    },
+
+    // Show global call popup (for incoming calls)
+    showGlobalCallPopup(callerName) {
+      const popup = document.getElementById("popup-call");
+      const popupText = document.getElementById("popup-call-text");
+      if (popup && popupText) {
+        popupText.innerText = `${callerName} is calling you...`;
+        popup.style.display = "block";
+      }
+    },
+
+    // Hide global call popup
+    hideGlobalCallPopup() {
+      const popup = document.getElementById("popup-call");
+      if (popup) {
+        popup.style.display = "none";
+      }
+    },
+
+    // Restore call state on page load
+    restoreCallState() {
+      const state = this.getCallState();
+      if (!state) return;
+
+      if (state.type === "incoming") {
+        this.incomingCall = state;
+        this.showGlobalCallPopup(state.from);
+      } else if (state.type === "active") {
+        this.currentCall = state;
+        this.showCallWindow(); // Show the floating window and maximize it
+        // The room-specific code will handle active call restoration of streams
+      }
+    },
+
+    // Handle call state changes from other tabs/pages
+    handleCallStateChange(newStateJson) {
+      if (!newStateJson) {
+        this.hideGlobalCallPopup();
+        this.clearCallState(); // Clear all state if no active call
+        return;
+      }
+
+      try {
+        const newState = JSON.parse(newStateJson);
+        if (newState.type === "incoming") {
+          this.incomingCall = newState;
+          this.showGlobalCallPopup(newState.from);
+        } else if (newState.type === "active") {
+          this.currentCall = newState;
+          this.hideGlobalCallPopup();
+          this.showCallWindow();
+        } else {
+          this.hideGlobalCallPopup();
+          this.clearCallState();
+        }
+      } catch (e) {
+        console.error("Error parsing call state:", e);
+        this.clearCallState();
+      }
+    },
+
+    // Get current room name from URL
+    getCurrentRoom() {
+      const path = window.location.pathname;
+      console.log("[GlobalCallManager] Current path for regex:", path); // More specific log
+      // Simplified regex to specifically match /room/<username>/
+      const match = path.match(/\/room\/([^\/]+)\/?/); // Adjusted regex for optional trailing slash
+      console.log("[GlobalCallManager] Regex match result:", match); // More specific log
+      return match ? match[1] : null;
+    },
+
+    // Get room name for a specific user
+    getRoomNameForUser(username) {
+      // This should match the Django view's _pair_room_name logic
+      const currentUser = document.querySelector("strong")?.textContent || "";
+      if (!currentUser || !username) return null;
+
+      const users = [currentUser, username].sort();
+      return `${users[0]}_${users[1]}`;
+    },
+
+    // Trigger call acceptance in the current room
+    triggerRoomCallAcceptance() {
+      // This will be called by room-specific code
+      const event = new CustomEvent("globalCallAccepted", {
+        detail: this.incomingCall,
+      });
+      window.dispatchEvent(event);
+    },
+
+    // Clean up expired calls
+    cleanupExpiredCalls() {
+      const state = this.getCallState();
+      if (!state) return;
+
+      // Remove calls older than 2 minutes
+      if (Date.now() - state.timestamp > 120000) {
+        this.endCall(); // Use endCall to ensure all resources are properly released
+        this.hideGlobalCallPopup();
+      }
+    },
+  };
+
+  // Initialize when DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      window.GlobalCallManager.init();
+    });
+  } else {
+    window.GlobalCallManager.init();
+  }
+})();
+_______________________________________________________________________________________________
+static/js/webrtc.js
+
+(() => {
+  "use strict";
+  console.log("[WebRTC] webrtc.js loaded."); // Added log
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const { roomName, wsUrl, me } = window.APP_CONTEXT;
+    console.log("[WebRTC] APP_CONTEXT defined:", window.APP_CONTEXT); // Added log
+
+    // UI refs (only chat related, call UI is managed by GlobalCallManager)
+    const chatWindow = document.getElementById("chatBox");
+    const messageForm = document.getElementById("messageForm");
+    const messageInput = document.getElementById("messageInput");
+    const btnStartCall = document.getElementById("btnStartCall");
+
+    // GlobalCallManager references
+    const GlobalCallManager = window.GlobalCallManager;
+
+    function log(msg) {
+      console.log("[WebRTC]", msg);
+    }
+
+    function appendMsg(sender, text, isMe) {
+      const div = document.createElement("div");
+      div.className = `msg ${isMe ? "msg--me" : "msg--peer"}`;
+      div.innerHTML = `
+        <div class="msg__bubble">
+          <div class="msg__text">${escapeHtml(text)}</div>
+          <div class="msg__time">${new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}</div>
+        </div>
+      `;
+      chatWindow.appendChild(div);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement("div");
+      div.appendChild(document.createTextNode(s));
+      return div.innerHTML;
+    }
+
+    // WebSocket connection
+    let ws;
+
+    function connectWS() {
+      ws = new WebSocket(wsUrl);
+      GlobalCallManager.currentWebSocket = ws; // Set WebSocket for GlobalCallManager
+
+      ws.onopen = async () => {
+        log("WS open");
+        sendWS({ type: "join" });
+      };
+
+      ws.onmessage = async (evt) => {
+        const data = JSON.parse(evt.data);
+        const t = data.type;
+        const from = data.from;
+        const to = data.to;
+
+        // If a message is specifically for another user, ignore it in this tab
+        if (to && to !== me) return;
+
+        switch (t) {
+          case "chat":
+            console.log("Received chat message:", data);
+            if (from && from === me) return;
+            appendMsg(data.from || "Peer", data.message, false);
+            if (document.hidden) {
+              window.showPopup(
+                "popup-message",
+                `${data.from}: ${data.message}`
+              );
+              setTimeout(() => window.hidePopup("popup-message"), 4000);
+            }
+            break;
+
+          case "offer":
+            if (from === me) break;
+            // Delegate incoming call handling to GlobalCallManager
+            GlobalCallManager.handleIncomingCall({
+              from: from,
+              offer: data.offer,
+              room: roomName,
+            });
+            // Show inline incoming call box in the current room
+            const incomingBox = document.getElementById("incomingCallBox");
+            const incomingText = document.getElementById("incomingCallText");
+            if (incomingBox && incomingText) {
+              incomingText.innerText = `${from} is calling…`;
+              incomingBox.style.display = "block";
+            }
+            break;
+
+          case "user_status":
+            // Handle peer going offline during an active call
+            const peerUsername = roomName
+              .split("_")
+              .find((user) => user !== me);
+            if (
+              data.username === peerUsername &&
+              !data.is_online &&
+              GlobalCallManager.currentCall &&
+              GlobalCallManager.currentCall.type === "active"
+            ) {
+              appendMsg(
+                "System",
+                `${data.username} went offline. Ending call.`,
+                false
+              );
+              GlobalCallManager.endCall();
+              window.showPopup(
+                "popup-message",
+                `${data.username} went offline. Call ended.`
+              );
+              setTimeout(() => window.hidePopup("popup-message"), 4000);
+            }
+            // Note: chat.js also handles user_status for sidebar/header updates.
+            // This case in webrtc.js is specifically for active call management.
+            break;
+
+          case "answer":
+            if (from === me) break;
+            if (GlobalCallManager.currentPeerConnection) {
+              await GlobalCallManager.currentPeerConnection.setRemoteDescription(
+                new RTCSessionDescription(data.answer)
+              );
+            }
+            break;
+
+          case "ice":
+            if (from === me) break;
+            if (GlobalCallManager.currentPeerConnection) {
+              try {
+                await GlobalCallManager.currentPeerConnection.addIceCandidate(
+                  data.candidate
+                );
+              } catch (e) {
+                console.error("Error adding ICE candidate:", e);
+              }
+            }
+            break;
+
+          case "end_call":
+            appendMsg("System", `${from} ended the call`, false);
+            GlobalCallManager.endCall();
+            break;
+
+          case "reject":
+            appendMsg("System", `${from} rejected the call`, false);
+            GlobalCallManager.endCall(); // Treat rejection as ending the call for the caller
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        log("WS closed");
+        // Reconnect after a delay
+        setTimeout(connectWS, 1500);
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        ws.close();
+      };
+    }
+
+    function sendWS(payload) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(payload));
+      } else {
+        console.warn("WebSocket not open. Message not sent:", payload);
+      }
+    }
+
+    // Event listeners for chat messages
+    if (messageForm) {
+      messageForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const msg = messageInput.value.trim();
+        if (!msg) return;
+        appendMsg("You", msg, true);
+        sendWS({ type: "chat", message: msg });
+        messageInput.value = "";
+      });
+    }
+
+    // Event listener for starting a call
+    if (btnStartCall) {
+      btnStartCall.addEventListener("click", async () => {
+        console.log("[WebRTC] btnStartCall clicked!"); // Added log
+        // Derive peerUsername from roomName and current user
+        const peerUsername = roomName.split("_").find((user) => user !== me);
+        if (!peerUsername) {
+          console.error(
+            "Cannot start call: No peer username found in roomName."
+          );
+          return;
+        }
+        console.log("[WebRTC] Peer username:", peerUsername); // Added log
+
+        // Check if the peer is online
+        if (
+          window.getOnlineUsers &&
+          !window.getOnlineUsers().has(peerUsername)
+        ) {
+          window.showPopup(
+            "popup-message",
+            `${peerUsername} is currently offline.`
+          );
+          setTimeout(() => window.hidePopup("popup-message"), 4000);
+          return;
+        }
+
+        try {
+          // Get local media stream
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+          GlobalCallManager.setLocalStream(stream);
+
+          // Create peer connection with ICE servers
+          const pc = new RTCPeerConnection({
+            iceServers: window.APP_CONTEXT.iceServers,
+          });
+          GlobalCallManager.currentPeerConnection = pc;
+
+          // Add local stream tracks to peer connection
+          stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+          // Handle ICE candidates
+          pc.onicecandidate = (e) => {
+            if (e.candidate) {
+              sendWS({ type: "ice", to: peerUsername, candidate: e.candidate });
+            }
+          };
+
+          // Handle remote tracks
+          pc.ontrack = (e) => {
+            GlobalCallManager.setRemoteStream(e.streams[0]);
+          };
+
+          // Create and send offer
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+          });
+          await pc.setLocalDescription(offer);
+          sendWS({ type: "offer", to: peerUsername, offer, room: roomName });
+
+          // Update GlobalCallManager state
+          GlobalCallManager.currentCall = {
+            type: "active",
+            peer: peerUsername,
+            room: roomName,
+          };
+          GlobalCallManager.saveCallState(GlobalCallManager.currentCall);
+          GlobalCallManager.showCallWindow();
+        } catch (error) {
+          console.error("Error starting call:", error);
+          alert(
+            "Failed to start call. Please check camera/microphone permissions."
+          );
+          GlobalCallManager.endCall();
+        }
+      });
+    }
+
+    // Listen for global call acceptance from GlobalCallManager (when navigating to a room)
+    window.addEventListener("globalCallAccepted", async (event) => {
+      const incomingCallData = event.detail;
+      if (!incomingCallData) return;
+
+      const peerUsername = incomingCallData.from;
+
+      try {
+        // Get local media stream
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+        GlobalCallManager.setLocalStream(stream);
+
+        // Create peer connection with ICE servers
+        const pc = new RTCPeerConnection({
+          iceServers: window.APP_CONTEXT.iceServers,
+        });
+        GlobalCallManager.currentPeerConnection = pc;
+
+        // Add local stream tracks to peer connection
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+        // Handle ICE candidates
+        pc.onicecandidate = (e) => {
+          if (e.candidate) {
+            sendWS({ type: "ice", to: peerUsername, candidate: e.candidate });
+          }
+        };
+
+        // Handle remote tracks
+        pc.ontrack = (e) => {
+          GlobalCallManager.setRemoteStream(e.streams[0]);
+        };
+
+        // Set remote offer and create answer
+        await pc.setRemoteDescription(
+          new RTCSessionDescription(incomingCallData.offer)
+        );
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendWS({ type: "answer", to: peerUsername, answer });
+
+        // Update GlobalCallManager state
+        GlobalCallManager.currentCall = {
+          type: "active",
+          peer: peerUsername,
+          room: roomName,
+        };
+        GlobalCallManager.saveCallState(GlobalCallManager.currentCall);
+        GlobalCallManager.showCallWindow();
+        GlobalCallManager.hideGlobalCallPopup();
+        document.getElementById("incomingCallBox").style.display = "none"; // Hide inline box
+      } catch (error) {
+        console.error("Error accepting global call:", error);
+        alert(
+          "Failed to accept call. Please check camera/microphone permissions."
+        );
+        GlobalCallManager.endCall();
+      }
+    });
+
+    // Initial connection
+    connectWS();
+
+    // Initialize GlobalCallManager here, after APP_CONTEXT is defined
+    window.GlobalCallManager.init();
+  });
+})();
+_______________________________________________________________________________________________
+videochat_app/videochat/asgi.py
+
+import os
+from channels.auth import AuthMiddlewareStack
+from channels.routing import ProtocolTypeRouter, URLRouter
+from django.core.asgi import get_asgi_application
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "videochat.settings")
+
+django_asgi_app = get_asgi_application()
+
+try:
+    from chat.routing import websocket_urlpatterns
+except Exception:
+    websocket_urlpatterns = []
+
+application = ProtocolTypeRouter({
+    "http": django_asgi_app,
+    "websocket": AuthMiddlewareStack(
+        URLRouter(websocket_urlpatterns)
+    ),
+})
+_______________________________________________________________________________________________
+videochat_app/videochat/settings.py
+
+from pathlib import Path
+from pymongo import MongoClient
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback-key")
+DEBUG = os.getenv("DEBUG", "True") == "True"
+ALLOWED_HOSTS = []
+
+INSTALLED_APPS = [
+    'daphne',
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'chat',
+    'accounts',
+]
+
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [BASE_DIR / "templates"],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+ROOT_URLCONF = 'videochat.urls'
+ASGI_APPLICATION = 'videochat.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    },
+}
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+STATIC_URL = 'static/'
+
+LOGIN_REDIRECT_URL = '/'
+LOGOUT_REDIRECT_URL = '/accounts/login/'
+
+# --- MongoDB from .env ---
+MONGO_URI = os.getenv("MONGO_URI", "")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "")
+
+mongo_client = None
+mongo_db = None
+
+if MONGO_URI and MONGO_DB_NAME:
+    try:
+        mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        mongo_client.server_info()  # force connection test
+        mongo_db = mongo_client[MONGO_DB_NAME]
+    except Exception as e:
+        print(f"[MongoDB] Connection failed: {e}")
+        mongo_db = None
+
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / "static"
+]
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / "media"
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# WebRTC ICE Servers (STUN/TURN)
+WEBRTC_ICE_SERVERS = [
+    {"urls": "stun:stun.l.google.com:19302"},
+    {"urls": "stun:stun1.l.google.com:19302"},
+    # Add TURN servers here if needed, e.g.:
+    # {"urls": "turn:your_turn_server.com:3478", "username": "user", "credential": "password"},
+]
+_______________________________________________________________________________________________
+videochat_app/videochat/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('accounts/', include('django.contrib.auth.urls')),
+    path('accounts/', include('accounts.urls')),
+    path('', include('chat.urls')),   # home, notifications, rooms live here
+]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+_______________________________________________________________________________________________
+videochat_app/.env
+
+SECRET_KEY=django-insecure-temp-key
+DEBUG=True
+
+# MongoDB
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB_NAME=videochat
+_______________________________________________________________________________________________
+videochat_app/manage.py
+
+#!/usr/bin/env python
+import os
+import sys
+
+def main():
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'videochat.settings')
+    try:
+        from django.core.management import execute_from_command_line
+    except ImportError as exc:
+        raise ImportError("Couldn't import Django.") from exc
+    execute_from_command_line(sys.argv)
+
+if __name__ == '__main__':
+    main()
+_______________________________________________________________________________________________
+
+
+_______________________________________________________________________________________________

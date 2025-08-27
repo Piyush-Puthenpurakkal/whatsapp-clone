@@ -1,0 +1,28 @@
+{% extends "chat/base.html" %} {% block title %}Home{% endblock %}
+{% block sidebar %}
+<ul id="sidebarUsers">
+  {% if users %} {% for u in users %}
+  <li class="chat-item" data-username="{{ u.username }}">
+    <a class="chat-item__link" href="{% url 'room_with_user' u.username %}">
+      <div class="chat-item__avatar">{{ u.username|first|upper }}</div>
+      <div class="chat-item__meta">
+        <div class="chat-item__top">
+          <span class="chat-item__name">@{{ u.username }}</span>
+          <span class="user-status"> (Offline)</span> {# Initial status, will be
+          updated by JS #}
+          <span class="chat-item__time"></span>
+        </div>
+        <div class="chat-item__last">Start a new chat</div>
+      </div>
+    </a>
+  </li>
+  {% endfor %} {% else %}
+  <li class="chat-item--empty">No other users yet.</li>
+  {% endif %}
+</ul>
+{% endblock %} {% block content %}
+<div class="empty-state">
+  <h2>Welcome to WhatsApp Clone</h2>
+  <p>Click on a chat to start messaging or start a new one.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+All required packages are installed in a virtual environment, and the server is already running. I am also already logged in, so authentication is not an issue.
+
+Currently, new messages only appear after refreshing the page — I want them to update in real-time without refreshing.
+
+id - admin
+pass - adminpass123
+
+id - piyushraj98
+pass - userpass123
+
+id - piyush98
+pass - userpass123

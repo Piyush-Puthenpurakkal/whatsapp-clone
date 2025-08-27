@@ -1,0 +1,11 @@
+Django>=4.2
+channels>=4.0
+daphne>=4.0
+djangorestframework
+djangorestframework-simplejwt
+django-ratelimit
+pymongo
+channels_redis
+python-dotenv
+django-redis
+django-webpush
