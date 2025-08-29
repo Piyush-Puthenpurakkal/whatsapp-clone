@@ -159,13 +159,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     # Determine the correct room name for saving based on sender and recipient
                     chat_room_name = _pair_room_name(sender, recipient_username)
 
+                    recipient_username = payload.get("recipient")
                     doc = {
                         "room": chat_room_name, # Use the derived chat_room_name for saving
                         "sender": sender,
+                        "recipient": recipient_username, # Add recipient to the saved message
                         "message": payload.get("message", ""),
                         "timestamp": datetime.utcnow().isoformat(), # Convert to ISO 8601 string
                         "read": False, # For read receipts
                     }
+                    out["room"] = chat_room_name # Always include room in outgoing payload
                     print(f"[DEBUG chat/consumers.py] Attempting to save message to MongoDB for room: {chat_room_name}")
                     print(f"[DEBUG chat/consumers.py] Message doc: {doc}")
                     result = await sync_to_async(db.chats.insert_one)(doc)
@@ -220,15 +223,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             )
 
                 elif msg_type == "typing":
-                    # Broadcast typing indicator to the room, excluding the sender
-                    await self.channel_layer.group_send(
-                        self.room_group_name,
-                        {
-                            "type": "typing_indicator",
-                            "username": sender,
-                            "is_typing": payload.get("is_typing"),
-                        }
-                    )
+                    recipient_username = payload.get("recipient")
+                    if recipient_username:
+                        # Send typing indicator only to the intended recipient
+                        await self.channel_layer.group_send(
+                            f"user_{recipient_username}",
+                            {
+                                "type": "typing_indicator",
+                                "username": sender,
+                                "is_typing": payload.get("is_typing"),
+                                "room": self.room_name, # Include room for client-side filtering
+                            }
+                        )
                     return # Don't save typing indicators to DB
 
                 elif msg_type == "read_receipt":
@@ -317,11 +323,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """Handles the 'typing_indicator' event to send typing status to the websocket."""
         username = event["username"]
         is_typing = event["is_typing"]
+        room = event.get("room") # Get room from event
         if username != self.username: # Don't send typing indicator back to the sender
             await self.send(text_data=json.dumps({
                 "type": "typing_indicator",
                 "username": username,
                 "is_typing": is_typing,
+                "room": room, # Include room in the outgoing message
             }))
 
     async def room_event(self, event):

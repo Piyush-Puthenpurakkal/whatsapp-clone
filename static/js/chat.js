@@ -122,17 +122,13 @@
     const from = data.from;
     const to = data.to;
     const messageRoom = data.room; // Get the room from the incoming message
+    const recipient = data.recipient; // Get the recipient from the incoming message
 
     console.log(
-      `[chat.js] Current room: ${window.APP_CONTEXT.roomName}, Message room: ${messageRoom}`
+      `[chat.js] Current room: ${window.APP_CONTEXT.roomName}, Message room: ${messageRoom}, Sender: ${from}, Recipient: ${recipient}, Me: ${me}`
     ); // Added debug
-    // Only process messages if they are for the current user AND for the current room
-    if (to && to !== me) {
-      console.log(
-        `[chat.js] Message for user ${to} ignored (current user is ${me})`
-      ); // Added debug
-      return;
-    }
+
+    // Filter incoming messages strictly by room before rendering
     if (messageRoom && messageRoom !== window.APP_CONTEXT.roomName) {
       console.log(
         `[chat.js] Message for room ${messageRoom} ignored in current room ${window.APP_CONTEXT.roomName}`
@@ -140,10 +136,19 @@
       return;
     }
 
+    // Only show messages if the current user is either the sender or recipient
+    if (t === "chat" && from !== me && recipient !== me) {
+      console.log(
+        `[chat.js] Chat message not for current user. Sender: ${from}, Recipient: ${recipient}, Current User: ${me}`
+      );
+      return;
+    }
+
     switch (t) {
       case "chat":
-        // If a temporary message ID is provided, it means this is the server's confirmation
-        if (data.temp_message_id) {
+        // If the message is from the current user, and it's a temporary message, remove it.
+        // The server will send back the canonical message.
+        if (from === me && data.temp_message_id) {
           const tempMsgDiv = chatBox.querySelector(
             `[data-message-id="${data.temp_message_id}"]`
           );
@@ -181,7 +186,7 @@
         break;
 
       case "typing_indicator":
-        handleTypingIndicator(data.username, data.is_typing);
+        handleTypingIndicator(data.username, data.is_typing, messageRoom); // Pass messageRoom
         break;
 
       case "read_receipt":
@@ -265,10 +270,15 @@
       type: "typing",
       room: window.APP_CONTEXT.roomName, // Use window.APP_CONTEXT.roomName
       is_typing: isTyping,
+      recipient: window.APP_CONTEXT.peerUsername, // Add recipient for targeted typing notifications
     });
   }
 
-  function handleTypingIndicator(username, isTyping) {
+  function handleTypingIndicator(username, isTyping, messageRoom) {
+    // Add messageRoom parameter
+    if (messageRoom && messageRoom !== window.APP_CONTEXT.roomName) {
+      return; // Ignore typing indicator for other rooms
+    }
     if (username !== me) {
       if (isTyping) {
         typingUsernameSpan.innerText = username;

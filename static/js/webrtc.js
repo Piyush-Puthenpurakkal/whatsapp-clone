@@ -147,6 +147,13 @@
     }
     console.log("[webrtc.js] Retrieved Token from localStorage:", token);
     console.log("[webrtc.js] WebRTC WebSocket URL:", wsUrl);
+
+    // Close existing WebSocket if it's open
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      log("Closing existing WebRTC WS connection.");
+      ws.close();
+    }
+
     ws = new WebSocket(wsUrl);
     GlobalCallManager.currentWebSocket = ws;
 
@@ -206,6 +213,23 @@
       );
     }
   }
+
+  // Add a sendChat function for webrtc.js to send chat messages
+  window.sendChat = function (recipient, message) {
+    if (window.sendChatWS) {
+      window.sendChatWS({
+        type: "chat",
+        message: message,
+        room: window.APP_CONTEXT.roomName,
+        recipient: recipient,
+        // temp_message_id is handled by chat.js when appending the message
+      });
+    } else {
+      console.warn(
+        "[webrtc.js] window.sendChatWS is not defined. Cannot send chat message."
+      );
+    }
+  };
 
   async function startCall(
     peerUsername,
